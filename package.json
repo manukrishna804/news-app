@@ -1,13 +1,19 @@
 {
-  "name": "my-login-app",
+  "name": "echosphere",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
+  "description": "A modern news analysis platform with AI-powered legal insights and interactive chat features",
+  "keywords": ["react", "news", "ai", "legal-analysis", "chat", "firebase"],
+  "author": "Your Name",
+  "license": "MIT",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "vite",
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",

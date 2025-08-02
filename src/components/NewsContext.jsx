@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useState } from 'react';
+import PropTypes from 'prop-types';
 
 const NewsContext = createContext();
 
@@ -32,4 +33,8 @@ export const useNews = () => {
     throw new Error('useNews must be used within a NewsProvider');
   }
   return context;
+};
+
+NewsProvider.propTypes = {
+  children: PropTypes.node.isRequired
 };

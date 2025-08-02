@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp } from 'firebase/firestore';
 import { useParams, useNavigate } from 'react-router-dom';
 import { db, auth } from '../firebaseConfig';
+import LoadingSpinner from './LoadingSpinner';
 
-const ChatRoom = () => {
-  const { newsTitle } = useParams();
+const ChatRoom = ({ newsTitle: propNewsTitle }) => {
+  const { newsTitle: paramNewsTitle } = useParams();
   const navigate = useNavigate();
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
@@ -12,6 +13,10 @@ const ChatRoom = () => {
   const [currentUser, setCurrentUser] = useState(null);
   const chatContainerRef = useRef(null);
   const [error, setError] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Use propNewsTitle if available, otherwise use paramNewsTitle, otherwise use fallback
+  const chatTitle = propNewsTitle || paramNewsTitle || 'General Chat';
 
   useEffect(() => {
     // Check authentication
@@ -19,6 +24,7 @@ const ChatRoom = () => {
       if (user) {
         setCurrentUser(user);
         setError(null);
+        console.log('User authenticated:', user.email);
       } else {
         setCurrentUser(null);
         navigate('/login');
@@ -35,10 +41,17 @@ const ChatRoom = () => {
   };
 
   useEffect(() => {
-    if (!newsTitle || !currentUser) return;
+    if (!chatTitle || !currentUser) {
+      console.log('Missing requirements:', { chatTitle, currentUser: !!currentUser });
+      return;
+    }
+
+    console.log('Setting up Firestore listener for:', chatTitle);
 
     try {
-      const chatRef = collection(db, 'chats', newsTitle, 'messages');
+      // Create a safe collection path
+      const safeChatTitle = chatTitle.replace(/[^a-zA-Z0-9]/g, '_');
+      const chatRef = collection(db, 'chats', safeChatTitle, 'messages');
       const q = query(chatRef, orderBy('timestamp', 'asc'));
 
       const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -46,50 +59,86 @@ const ChatRoom = () => {
           id: doc.id,
           ...doc.data()
         }));
+        console.log('Received messages:', messageList.length);
         setMessages(messageList);
         setError(null);
         setTimeout(scrollToBottom, 100);
       }, (error) => {
         console.error('Error fetching messages:', error);
-        setError('Error loading messages. Please try again later.');
+        setError(`Error loading messages: ${error.message}`);
       });
 
       return () => unsubscribe();
     } catch (error) {
       console.error('Error setting up listener:', error);
-      setError('Error connecting to chat. Please try again later.');
+      setError(`Error connecting to chat: ${error.message}`);
     }
-  }, [newsTitle, currentUser]);
+  }, [chatTitle, currentUser]);
 
   const sendMessage = async (e) => {
     e.preventDefault();
-    if (!newMessage.trim() || !currentUser) return;
+    if (!newMessage.trim() || !currentUser) {
+      console.log('Cannot send message:', { 
+        newMessage: newMessage.trim(), 
+        currentUser: !!currentUser
+      });
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
 
     try {
-      const chatRef = collection(db, 'chats', newsTitle, 'messages');
-      await addDoc(chatRef, {
+      console.log('Sending message to Firestore:', {
+        chatTitle,
+        message: newMessage,
+        userId: currentUser.uid,
+        userName: currentUser.email
+      });
+
+      // Create a safe collection path
+      const safeChatTitle = chatTitle.replace(/[^a-zA-Z0-9]/g, '_');
+      const chatRef = collection(db, 'chats', safeChatTitle, 'messages');
+      
+      const messageData = {
         text: newMessage,
         timestamp: serverTimestamp(),
         userId: currentUser.uid,
         userName: currentUser.email,
         createdAt: new Date().toISOString()
-      });
+      };
+
+      console.log('Message data:', messageData);
+
+      const docRef = await addDoc(chatRef, messageData);
+      console.log('Message sent successfully with ID:', docRef.id);
+      
       setNewMessage('');
       setError(null);
       scrollToBottom();
     } catch (error) {
       console.error('Error sending message:', error);
-      setError('Error sending message. Please try again.');
+      setError(`Error sending message: ${error.message}`);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const formatTime = (dateString) => {
-    const date = new Date(dateString);
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch (error) {
+      return 'Invalid time';
+    }
   };
 
   if (!currentUser) {
-    return <div className="flex justify-center items-center h-screen">Checking authentication...</div>;
+    return (
+      <div className="flex justify-center items-center h-screen">
+        <LoadingSpinner size="large" text="Checking authentication..." />
+      </div>
+    );
   }
 
   return (
@@ -97,7 +146,7 @@ const ChatRoom = () => {
       {/* Chat Header */}
       <div className="bg-[#075E54] text-white px-4 py-3 flex items-center justify-between rounded-t-lg">
         <div>
-          <h2 className="font-semibold text-lg">{decodeURIComponent(newsTitle)}</h2>
+          <h2 className="font-semibold text-lg">{chatTitle}</h2>
           <p className="text-sm opacity-90">{messages.length} messages</p>
         </div>
         <div className="text-sm">
@@ -108,7 +157,13 @@ const ChatRoom = () => {
       {/* Error Message */}
       {error && (
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded relative">
-          {error}
+          <strong>Error:</strong> {error}
+          <button
+            onClick={() => setError(null)}
+            className="float-right font-bold text-red-700 hover:text-red-900"
+          >
+            ×
+          </button>
         </div>
       )}
 
@@ -139,7 +194,7 @@ const ChatRoom = () => {
               >
                 {!isMyMessage && showUserName && (
                   <div className="text-sm font-medium text-[#075E54]">
-                    {message.userName.split('@')[0]}
+                    {message.userName ? message.userName.split('@')[0] : 'Anonymous'}
                   </div>
                 )}
                 <div className="text-[#303030]">{message.text}</div>
@@ -163,19 +218,19 @@ const ChatRoom = () => {
               onChange={(e) => setNewMessage(e.target.value)}
               className="w-full px-4 py-2 rounded-full border border-gray-300 focus:outline-none focus:border-[#075E54]"
               placeholder="Type a message"
-              disabled={!!error}
+              disabled={isLoading || !!error}
             />
           </div>
           <button
             type="submit"
             className={`px-6 py-2 rounded-full transition-colors ${
-              error 
+              isLoading || error 
                 ? 'bg-gray-400 cursor-not-allowed' 
                 : 'bg-[#075E54] hover:bg-[#054c44]'
             } text-white`}
-            disabled={!!error}
+            disabled={isLoading || !!error}
           >
-            Send
+            {isLoading ? 'Sending...' : 'Send'}
           </button>
         </form>
       </div>

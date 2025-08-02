@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
+import PropTypes from 'prop-types';
 import { useNavigate } from 'react-router-dom';
 import { useFuzzySearch } from '../hooks/useFuzzySearch';
 import { useNews } from './NewsContext';
@@ -128,6 +129,13 @@ const Newsitem = ({ title, description, src, url }) => {
       </div>
     </div>
   );
+};
+
+Newsitem.propTypes = {
+  title: PropTypes.string,
+  description: PropTypes.string,
+  src: PropTypes.string,
+  url: PropTypes.string
 };
 
 export default Newsitem;

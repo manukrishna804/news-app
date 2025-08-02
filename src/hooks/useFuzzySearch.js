@@ -17,30 +17,39 @@ export const useFuzzySearch = () => {
   useEffect(() => {
     const loadCSVData = async () => {
       try {
+        console.log('Loading CSV data...');
         const response = await fetch('/csv/Final_IC.csv');
         const csvText = await response.text();
         
         Papa.parse(csvText, {
           header: true,
           complete: (results) => {
-            const cleanedData = results.data.filter(item => 
-              item.title && item.title.trim() !== '' && 
-              item.content && item.content.trim() !== ''
-            );
+            console.log('CSV parsing complete, total rows:', results.data.length);
+            
+            // Filter and limit data for better performance
+            const cleanedData = results.data
+              .filter(item => 
+                item.title && item.title.trim() !== '' && 
+                item.content && item.content.trim() !== ''
+              )
+              .slice(0, 500); // Limit to first 500 articles for performance
+            
+            console.log('Filtered data count:', cleanedData.length);
             setArticles(cleanedData);
             
             // Initialize Fuse instance with optimized settings
             const fuseInstance = new Fuse(cleanedData, {
               keys: ['title', 'content'],
               includeScore: true,
-              threshold: 0.4,
-              distance: 200,
-              minMatchCharLength: 3,
-              useExtendedSearch: true,
+              threshold: 0.6, // Increased threshold for better matches
+              distance: 100, // Reduced distance for faster search
+              minMatchCharLength: 2,
+              useExtendedSearch: false, // Disabled for better performance
               ignoreLocation: true
             });
             
             setFuse(fuseInstance);
+            console.log('Fuse instance created successfully');
           },
           error: (error) => {
             console.error('Error parsing CSV:', error);
@@ -58,6 +67,7 @@ export const useFuzzySearch = () => {
 
   const searchArticles = async (query) => {
     console.log('Starting search for:', query);
+    
     if (!fuse || !query) {
       const error = 'Search not ready or query is empty';
       console.error(error, { fuse: !!fuse, query });
@@ -81,104 +91,86 @@ export const useFuzzySearch = () => {
       const results = fuse.search(query);
       console.log('Fuzzy search results:', results.length);
       
+      // Take only top 3 results for better performance
       const filteredResults = results
-        .filter(result => result.score < 0.7)
+        .filter(result => result.score < 0.8)
+        .slice(0, 3)
         .map(result => ({
           ...result.item,
           matchScore: result.score
         }));
+      
       console.log('Filtered results:', filteredResults.length);
 
-      const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-
-      // If no relevant articles found, ask Gemini for general legal analysis
+      // If no relevant articles found, provide a simple fallback
       if (filteredResults.length === 0) {
-        console.log('No matches found, using Gemini fallback');
-        const fallbackPrompt = `Analyze this news title: "${query}" from a legal perspective.
-
-        Please provide:
-        1. Potential legal implications and concerns
-        2. Relevant sections from Indian law (IPC, Constitution, or other relevant acts)
-        3. Similar legal precedents or cases that might be relevant
-        4. Recommendations for legal compliance or risk mitigation
-
-        Focus on Indian legal context and cite specific sections of law where applicable.
-        Format the response in clear sections with bullet points.`;
-
-        console.log('Sending fallback prompt to Gemini...');
-        const result = await model.generateContent(fallbackPrompt);
-        console.log('Received Gemini response');
-        const response = await result.response;
-        const text = response.text();
-        console.log('Processed Gemini response');
-        
-        if (!text) {
-          throw new Error('Empty response from Gemini');
-        }
-        
+        console.log('No matches found, providing fallback');
         const fallbackData = {
-          title: "AI-Generated Legal Analysis",
-          content: "Generated legal analysis based on Indian law and constitution",
+          title: "No Direct Constitutional Match Found",
+          content: "This news article doesn't have a direct match in our constitutional database. However, you can still discuss the legal implications in the chat room.",
           matchScore: 1,
           isGenerated: true,
-          enhanced: text
+          enhanced: "No specific constitutional articles found for this news topic. Consider discussing the broader legal implications in the chat room."
         };
 
         setEnhancedArticle(fallbackData);
         return { results: [fallbackData], enhancedData: fallbackData };
       }
 
-      // Process the best match with Gemini
+      // Process the best match with Gemini (only if we have results)
       console.log('Processing best match with Gemini');
       const bestMatch = filteredResults[0];
       
-      const prompt = `Analyze this news article in relation to "${query}" and provide insights:
-      Article Content: ${bestMatch.content}
-      
-      Please provide:
-      1. Key legal points and implications
-      2. Relevant sections from Indian law (IPC, Constitution, or other relevant acts)
-      3. Similar legal precedents or cases
-      4. How this relates to the current news: "${query}"
-      
-      Focus on Indian legal context and cite specific sections of law where applicable.
-      Format the response in clear sections with bullet points.`;
+      try {
+        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+        
+        const prompt = `Analyze this news article in relation to "${query}" and provide brief legal insights:
+        Article Content: ${bestMatch.content}
+        
+        Please provide a brief analysis (2-3 paragraphs) covering:
+        1. Key legal points and implications
+        2. How this relates to the current news: "${query}"
+        
+        Keep the response concise and focused on Indian legal context.`;
 
-      console.log('Sending prompt to Gemini...');
-      const result = await model.generateContent(prompt);
-      console.log('Received Gemini response');
-      const response = await result.response;
-      const text = response.text();
-      console.log('Processed Gemini response');
+        console.log('Sending prompt to Gemini...');
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        const text = response.text();
 
-      if (!text) {
-        throw new Error('Empty response from Gemini');
+        if (!text) {
+          throw new Error('Empty response from Gemini');
+        }
+
+        const enhancedData = {
+          original: bestMatch,
+          enhanced: text,
+          newsTitle: query
+        };
+        console.log('Setting enhanced article data');
+        setEnhancedArticle(enhancedData);
+
+        const processedResults = filteredResults.map((r, i) => ({
+          ...r,
+          isProcessed: i === 0,
+          enhanced: i === 0 ? text : null
+        }));
+
+        return { results: processedResults, enhancedData };
+      } catch (geminiError) {
+        console.error('Gemini API error:', geminiError);
+        // Fallback without Gemini analysis
+        const processedResults = filteredResults.map((r, i) => ({
+          ...r,
+          isProcessed: i === 0,
+          enhanced: null
+        }));
+        
+        return { results: processedResults, enhancedData: null };
       }
-
-      const enhancedData = {
-        original: bestMatch,
-        enhanced: text,
-        newsTitle: query
-      };
-      console.log('Setting enhanced article data');
-      setEnhancedArticle(enhancedData);
-
-      const processedResults = filteredResults.map((r, i) => ({
-        ...r,
-        isProcessed: i === 0,
-        enhanced: i === 0 ? text : null
-      }));
-
-      return { results: processedResults, enhancedData };
     } catch (err) {
       console.error('Error in searchArticles:', err);
-      console.error('Error details:', {
-        message: err.message,
-        stack: err.stack,
-        query,
-        hasGeminiKey: !!import.meta.env.VITE_GEMINI_API_KEY
-      });
-      setError(`Error: ${err.message}`);
+      setError(`Search error: ${err.message}`);
       return { results: [], enhancedData: null };
     } finally {
       setLoading(false);

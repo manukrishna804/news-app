@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
+import PropTypes from 'prop-types';
 
 const Navbar = ({ setCategory }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -88,6 +89,10 @@ const Navbar = ({ setCategory }) => {
       </div>
     </nav>
   );
+};
+
+Navbar.propTypes = {
+  setCategory: PropTypes.func.isRequired
 };
 
 export default Navbar;
