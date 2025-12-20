@@ -3,13 +3,26 @@
 @tailwind utilities;
 
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
   line-height: 1.5;
   font-weight: 400;
+
+  --primary: 37, 99, 235;
+  /* Blue 600 */
 }
 
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  @apply bg-slate-50 text-slate-900;
+}
+
+/* Custom Gradients & Animations */
+.glass-effect {
+  @apply bg-white/70 backdrop-blur-lg border border-white/20 shadow-xl;
+}
+
+.gradient-text {
+  @apply bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-600;
 }
