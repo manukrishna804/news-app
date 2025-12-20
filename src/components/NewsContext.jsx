@@ -1,4 +1,4 @@
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useState, useCallback } from 'react';
 import PropTypes from 'prop-types';
 
 const NewsContext = createContext();
@@ -7,20 +7,20 @@ export const NewsProvider = ({ children }) => {
   const [newsData, setNewsData] = useState([]);
   const [selectedNews, setSelectedNews] = useState(null);
 
-  const updateNewsData = (data) => {
+  const updateNewsData = useCallback((data) => {
     setNewsData(data);
-  };
+  }, []);
 
-  const selectNews = (news) => {
+  const selectNews = useCallback((news) => {
     setSelectedNews(news);
-  };
+  }, []);
 
   return (
-    <NewsContext.Provider value={{ 
-      newsData, 
-      selectedNews, 
-      updateNewsData, 
-      selectNews 
+    <NewsContext.Provider value={{
+      newsData,
+      selectedNews,
+      updateNewsData,
+      selectNews
     }}>
       {children}
     </NewsContext.Provider>

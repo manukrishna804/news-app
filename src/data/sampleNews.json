@@ -1,0 +1,116 @@
+[
+    {
+        "title": "Supreme Court Upholds Right to Privacy",
+        "link": "https://en.wikipedia.org/wiki/Right_to_Privacy_verdict",
+        "keywords": [
+            "privacy",
+            "supreme court",
+            "constitution",
+            "fundamental right"
+        ],
+        "creator": [
+            "Legal Correspondent"
+        ],
+        "video_url": null,
+        "description": "In a historic judgment, a nine-judge bench of the Supreme Court has unanimously declared that the right to privacy is a fundamental right under Article 21 of the Constitution.",
+        "content": "The Supreme Court of India today ruled that the right to privacy is a fundamental right...",
+        "pubDate": "2024-03-20 10:30:00",
+        "image_url": "https://images.unsplash.com/photo-1589829085413-56de8ae18c73?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80",
+        "source_id": "the_hindu",
+        "category": [
+            "top",
+            "politics",
+            "national"
+        ]
+    },
+    {
+        "title": "New Digital Data Protection Bill Tabled",
+        "link": "https://prsindia.org/billtrack/the-digital-personal-data-protection-bill-2023",
+        "keywords": [
+            "data protection",
+            "parliament",
+            "bill",
+            "law"
+        ],
+        "creator": [
+            "Tech Bureau"
+        ],
+        "video_url": null,
+        "description": "The government has introduced the new Digital Personal Data Protection Bill, 2023 in the Lok Sabha to regulate the processing of digital personal data.",
+        "content": "Minister of Electronics and IT introduced the bill...",
+        "pubDate": "2024-03-19 14:15:00",
+        "image_url": "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80",
+        "source_id": "economic_times",
+        "category": [
+            "business",
+            "technology"
+        ]
+    },
+    {
+        "title": "India Launches First Solar Mission Aditya-L1",
+        "link": "https://www.isro.gov.in/Aditya_L1.html",
+        "keywords": [
+            "space",
+            "isro",
+            "science",
+            "solar mission"
+        ],
+        "creator": [
+            "Science Desk"
+        ],
+        "video_url": null,
+        "description": "ISRO has successfully launched Aditya-L1, India's first space-based observatory to study the Sun.",
+        "content": "The PSLV-C57 rocket carrying the payload lifted off from Sriharikota...",
+        "pubDate": "2024-03-18 09:00:00",
+        "image_url": "https://images.unsplash.com/photo-1451187580459-43490279c0fa?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80",
+        "source_id": "isro_news",
+        "category": [
+            "science",
+            "technology"
+        ]
+    },
+    {
+        "title": "RBI Announces New Guidelines for Digital Payments",
+        "link": "https://www.rbi.org.in/",
+        "keywords": [
+            "economy",
+            "rbi",
+            "finance",
+            "banking"
+        ],
+        "creator": [
+            "Business Staff"
+        ],
+        "video_url": null,
+        "description": "The Reserve Bank of India has issued fresh consolidated guidelines on digital payment security controls.",
+        "content": "In a move to strengthen the digital payment ecosystem...",
+        "pubDate": "2024-03-17 11:45:00",
+        "image_url": "https://images.unsplash.com/photo-1580519542036-c6db25276163?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80",
+        "source_id": "financial_express",
+        "category": [
+            "business",
+            "finance"
+        ]
+    },
+    {
+        "title": "National Games 2024: Medal Tally Update",
+        "link": "https://en.wikipedia.org/wiki/National_Games_of_India",
+        "keywords": [
+            "sports",
+            "national games",
+            "athletics"
+        ],
+        "creator": [
+            "Sports Bureau"
+        ],
+        "video_url": null,
+        "description": "Services continues to lead the medal tally at the 37th National Games in Goa right now.",
+        "content": "The track and field events saw spectacular performances...",
+        "pubDate": "2024-03-16 16:20:00",
+        "image_url": "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80",
+        "source_id": "sports_star",
+        "category": [
+            "sports"
+        ]
+    }
+]

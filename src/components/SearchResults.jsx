@@ -23,7 +23,7 @@ const SearchResults = () => {
   const categorizeArticle = (articleId, articleDesc) => {
     const articleNum = extractArticleNumber(articleId);
     if (!articleNum) return 'Other';
-    
+
     if (articleNum >= 12 && articleNum <= 35) return 'Fundamental Rights';
     if (articleNum >= 36 && articleNum <= 51) return 'Directive Principles';
     if (articleNum >= 52 && articleNum <= 151) return 'Union Government';
@@ -37,7 +37,7 @@ const SearchResults = () => {
     if (articleNum >= 352 && articleNum <= 360) return 'Emergency Provisions';
     if (articleNum >= 361 && articleNum <= 367) return 'Miscellaneous';
     if (articleNum >= 368) return 'Constitutional Amendments';
-    
+
     return 'Other';
   };
 
@@ -47,66 +47,65 @@ const SearchResults = () => {
       try {
         console.log('🔍 Starting CSV load...');
         setDebugInfo('Loading CSV file...');
-        
+
         const response = await fetch('/csv/Final_IC.csv');
         console.log('📄 Response status:', response.status);
-        
+
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
-        
+
         const csvText = await response.text();
         console.log('📄 CSV text length:', csvText.length);
-        
+
         setDebugInfo('Parsing CSV data...');
-        
+
         Papa.parse(csvText, {
           header: true,
           complete: (results) => {
             console.log('✅ CSV parsing complete');
-            console.log('📊 Total rows:', results.data.length);
-            console.log('📊 Sample row:', results.data[0]);
-            
-            setDebugInfo(`Parsed ${results.data.length} rows`);
-            
+
             // Filter and clean data - use actual column names
             const cleanedData = results.data
-              .filter(item => 
-                item.article_id && item.article_id.trim() !== '' && 
-                item.article_desc && item.article_desc.trim() !== ''
+              .filter(item =>
+                (item.article_id && item.article_id.trim() !== '') ||
+                (item.title && item.title.trim() !== '')
               )
               .map(item => ({
                 ...item,
-                articleNumber: extractArticleNumber(item.article_id),
+                // CRITICAL FIX: Map CSV columns to generic keys for Fuse and UI
+                title: item.article_id || item.title || 'Untitled',
+                content: item.article_desc || item.content || 'No description',
+                articleNumber: extractArticleNumber(item.article_id || item.title),
                 category: categorizeArticle(item.article_id, item.article_desc)
               }))
+              .filter(item => item.content && item.content.trim() !== '')
               .slice(0, 1000); // Use first 1000 articles for better performance
-            
+
             console.log('🧹 Filtered data count:', cleanedData.length);
-            console.log('🧹 Sample cleaned item:', cleanedData[0]);
             setArticles(cleanedData);
-            
+
             if (cleanedData.length === 0) {
               setError('No valid articles found in CSV');
               return;
             }
-            
+
             setDebugInfo(`Creating search index for ${cleanedData.length} articles...`);
-            
-            // Initialize Fuse instance with correct column names and better search
+
+            // Initialize Fuse instance with correct keys
             const fuseInstance = new Fuse(cleanedData, {
               keys: [
-                { name: 'article_id', weight: 0.4 },
-                { name: 'article_desc', weight: 0.6 }
+                { name: 'title', weight: 0.3 },     // Search in Article ID (e.g. Article 21)
+                { name: 'content', weight: 0.7 }    // Search in Description (e.g. Protection of life...)
               ],
               includeScore: true,
-              threshold: 0.6, // More lenient threshold
-              distance: 300,
-              minMatchCharLength: 2,
+              threshold: 0.5, // 0.0 = perfect match, 1.0 = match anything. 0.5 is balanced.
+              distance: 1000, // Search far into the text
+              minMatchCharLength: 3,
               ignoreLocation: true,
-              useExtendedSearch: false
+              useExtendedSearch: true
             });
-            
+
             setFuse(fuseInstance);
             console.log('✅ Fuse instance created successfully');
             setDebugInfo('Search index ready!');
@@ -129,81 +128,102 @@ const SearchResults = () => {
 
   useEffect(() => {
     const performSearch = async () => {
-      console.log('🔍 SearchResults: Location search:', location.search);
-      
       // Get parameters from URL
       const urlParams = new URLSearchParams(location.search);
       const title = urlParams.get('title');
       const content = urlParams.get('content');
 
-      console.log('🔍 Extracted params:', { title, content });
-
       if (!title) {
-        console.log('❌ No title parameter, redirecting to dashboard');
         navigate('/dashboard');
         return;
       }
 
       if (!fuse) {
-        console.log('⏳ Fuse not ready yet, waiting...');
-        setDebugInfo('Waiting for search index...');
+        setDebugInfo('Waiting for database to load...');
         return;
       }
 
-      console.log('🔍 Performing search for:', title);
       setLoading(true);
       setError(null);
-      setDebugInfo('Searching constitutional articles...');
+      setDebugInfo('Analyzing legal database...');
 
       try {
-        // Create multiple search queries for better results
-        const searchQueries = [];
-        
-        // Main query
-        const mainQuery = content ? `${title} ${content}` : title;
-        searchQueries.push(mainQuery);
-        
-        // Extract key terms for additional searches
+        // Collect search terms
+        const searchTerms = new Set();
+
+        // 1. Add key terms from the text (Constitutional words)
         const keyTerms = extractKeyTerms(title, content);
-        searchQueries.push(...keyTerms);
-        
-        console.log('🔍 Search queries:', searchQueries);
-        
-        // Perform multiple searches and combine results
+        keyTerms.forEach(term => searchTerms.add(term));
+
+        // 2. Add some fallback general terms if no specific key terms found
+        if (searchTerms.size === 0) {
+          // Basic split of title into words, ignoring small words
+          title.split(' ').forEach(word => {
+            if (word.length > 4) searchTerms.add(word);
+          });
+        }
+
+        console.log('🔍 Search terms:', Array.from(searchTerms));
+
+        // Perform searches
         let allResults = [];
-        for (const query of searchQueries) {
-          const results = fuse.search(query);
+
+        // Strategy A: Direct Fuse Search on the full title
+        const resultsTitle = fuse.search(title);
+        allResults.push(...resultsTitle);
+
+        // Strategy B: Search for each key term individually
+        for (const term of searchTerms) {
+          const results = fuse.search(term);
           allResults.push(...results);
         }
-        
-        // Remove duplicates and sort by score
-        const uniqueResults = allResults
-          .filter((result, index, self) => 
-            index === self.findIndex(r => r.item.article_id === result.item.article_id)
-          )
-          .sort((a, b) => a.score - b.score);
-        
-        console.log('🔍 Combined results:', uniqueResults.length);
-        console.log('🔍 First few results:', uniqueResults.slice(0, 3));
-        
-        // Filter and limit results - more lenient filtering
-        const filteredResults = uniqueResults
-          .filter(result => result.score < 0.8) // More lenient score threshold
-          .slice(0, 20) // Show top 20 results
+
+        // Deduplicate and sort
+        const uniqueItems = new Map();
+        allResults.forEach(res => {
+          // Use article_id as unique key
+          const key = res.item.article_id || res.item.title;
+          if (!uniqueItems.has(key)) {
+            uniqueItems.set(key, res);
+          } else {
+            // Keep the one with better score (lower is better)
+            if (res.score < uniqueItems.get(key).score) {
+              uniqueItems.set(key, res);
+            }
+          }
+        });
+
+        const sortedResults = Array.from(uniqueItems.values())
+          .sort((a, b) => a.score - b.score)
+          .slice(0, 15) // Top 15 results
           .map(result => ({
-            title: result.item.article_id,
-            content: result.item.article_desc,
+            title: result.item.title, // Now guaranteed to exist from our loadCSVData map
+            content: result.item.content,
             articleNumber: result.item.articleNumber,
             category: result.item.category,
             matchScore: result.score
           }));
-        
-        console.log('🔍 Filtered results:', filteredResults.length);
-        console.log('🔍 Sample filtered result:', filteredResults[0]);
 
-        // Group results by category
-        const groupedResults = filteredResults.reduce((groups, article) => {
-          const category = article.category;
+        console.log('🔍 Final sorted results:', sortedResults.length);
+
+        // If no results, try a super broad search for "Constitution" just to show SOMETHING
+        if (sortedResults.length === 0) {
+          console.log('⚠️ No results found, showing general backup');
+          const backupResults = fuse.search("Constitution")
+            .slice(0, 5)
+            .map(result => ({
+              title: result.item.title,
+              content: result.item.content,
+              articleNumber: result.item.articleNumber,
+              category: result.item.category,
+              matchScore: 0.9
+            }));
+          sortedResults.push(...backupResults);
+        }
+
+        // Group results
+        const groupedResults = sortedResults.reduce((groups, article) => {
+          const category = article.category || 'Other';
           if (!groups[category]) {
             groups[category] = [];
           }
@@ -211,25 +231,14 @@ const SearchResults = () => {
           return groups;
         }, {});
 
-        // Create enhanced analysis
+        // Use AI Summary or fallback
         const enhancedData = {
-          original: filteredResults[0] || null,
-          enhanced: `Legal Analysis for: "${title}"
-
-This news article has been analyzed against the Indian Constitution database. Found ${filteredResults.length} related constitutional articles across ${Object.keys(groupedResults).length} categories.
-
-Key Constitutional Categories Found:
-${Object.keys(groupedResults).map(cat => `• ${cat}: ${groupedResults[cat].length} articles`).join('\n')}
-
-The analysis shows how current events relate to constitutional principles and legal frameworks.`,
+          enhanced: `Analysis for "${title}":\n\nFound ${sortedResults.length} relevant articles. The most relevant category appears to be ${Object.keys(groupedResults)[0] || 'General'}.`,
           newsTitle: title
         };
-        
-        console.log('✅ Search results created');
-        setDebugInfo(`Found ${filteredResults.length} related articles in ${Object.keys(groupedResults).length} categories`);
-        
+
         setSearchData({
-          results: filteredResults,
+          results: sortedResults,
           groupedResults: groupedResults,
           currentNewsTitle: title,
           enhancedArticle: enhancedData,
@@ -237,15 +246,7 @@ The analysis shows how current events relate to constitutional principles and le
         });
       } catch (err) {
         console.error('❌ Search error:', err);
-        setError(`Search failed: ${err.message}`);
-        setDebugInfo('Search failed');
-        setSearchData({
-          results: [],
-          groupedResults: {},
-          currentNewsTitle: title,
-          enhancedArticle: null,
-          isGeneratedAnalysis: false
-        });
+        setError(`Search analysis failed: ${err.message}`);
       } finally {
         setLoading(false);
       }
@@ -258,7 +259,7 @@ The analysis shows how current events relate to constitutional principles and le
   const extractKeyTerms = (title, content) => {
     const text = `${title} ${content || ''}`.toLowerCase();
     const keyTerms = [];
-    
+
     // Common constitutional terms
     const constitutionalTerms = [
       'right', 'freedom', 'equality', 'liberty', 'justice', 'law', 'government',
@@ -266,13 +267,13 @@ The analysis shows how current events relate to constitutional principles and le
       'election', 'vote', 'democracy', 'constitution', 'amendment',
       'fundamental', 'directive', 'principle', 'duty', 'responsibility'
     ];
-    
+
     constitutionalTerms.forEach(term => {
       if (text.includes(term)) {
         keyTerms.push(term);
       }
     });
-    
+
     return keyTerms.slice(0, 5); // Limit to 5 key terms
   };
 
@@ -346,6 +347,20 @@ The analysis shows how current events relate to constitutional principles and le
         </button>
       </div>
 
+      {
+        currentNewsTitle && (
+          <div className="flex justify-end mb-6">
+            <button
+              onClick={() => navigate(`/dashboard/chat/${encodeURIComponent(currentNewsTitle)}`)}
+              className="bg-[#075E54] hover:bg-[#054c44] text-white px-6 py-2 rounded-full transition-colors flex items-center gap-2"
+            >
+              <span>💬</span>
+              Discuss this Topic
+            </button>
+          </div>
+        )
+      }
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Gemini Analysis Section */}
         {enhancedArticle && enhancedArticle.enhanced && (
@@ -366,8 +381,8 @@ The analysis shows how current events relate to constitutional principles and le
         {/* Related Articles Section - Grouped by Category */}
         <div className="space-y-6">
           <h3 className="text-xl font-semibold mb-4">
-            {isGeneratedAnalysis 
-              ? 'AI-Generated Legal Analysis' 
+            {isGeneratedAnalysis
+              ? 'AI-Generated Legal Analysis'
               : 'Related Constitutional Articles'}
           </h3>
           {Object.keys(groupedResults).length > 0 ? (
@@ -418,7 +433,7 @@ The analysis shows how current events relate to constitutional principles and le
           )}
         </div>
       </div>
-    </div>
+    </div >
   );
 };
 

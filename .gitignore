@@ -1,1 +1,14 @@
-node_modules
+# environment variables
+.env
+
+# virtual environment
+venv/
+
+# logs
+*.log
+pglite-debug.log
+
+# node / react
+node_modules/
+dist/
+build/

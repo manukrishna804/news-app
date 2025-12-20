@@ -14,9 +14,10 @@ const ChatRoom = ({ newsTitle: propNewsTitle }) => {
   const chatContainerRef = useRef(null);
   const [error, setError] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [debugInfo, setDebugInfo] = useState(null);
 
-  // Use propNewsTitle if available, otherwise use paramNewsTitle, otherwise use fallback
-  const chatTitle = propNewsTitle || paramNewsTitle || 'General Chat';
+  // Use propNewsTitle if available, otherwise use paramNewsTitle (decoded), otherwise use fallback
+  const chatTitle = propNewsTitle || (paramNewsTitle ? decodeURIComponent(paramNewsTitle) : null) || 'General Chat';
 
   useEffect(() => {
     // Check authentication
@@ -24,15 +25,15 @@ const ChatRoom = ({ newsTitle: propNewsTitle }) => {
       if (user) {
         setCurrentUser(user);
         setError(null);
-        console.log('User authenticated:', user.email);
+        console.log('[ChatRoom] User authenticated:', user.email, user.uid);
       } else {
         setCurrentUser(null);
-        navigate('/login');
+        // Don't auto-redirect, allow viewing the "Login Required" state
       }
     });
 
     return () => unsubscribeAuth();
-  }, [navigate]);
+  }, []);
 
   const scrollToBottom = () => {
     if (chatContainerRef.current) {
@@ -42,15 +43,23 @@ const ChatRoom = ({ newsTitle: propNewsTitle }) => {
 
   useEffect(() => {
     if (!chatTitle || !currentUser) {
-      console.log('Missing requirements:', { chatTitle, currentUser: !!currentUser });
+      console.log('[ChatRoom] Waiting for requirements:', { chatTitle, hasUser: !!currentUser });
       return;
     }
 
-    console.log('Setting up Firestore listener for:', chatTitle);
+    const safeChatTitle = chatTitle.replace(/[^a-zA-Z0-9]/g, '_');
+    console.log('[ChatRoom] Setting up Firestore listener for:', safeChatTitle);
+
+    // Set debug info for UI
+    setDebugInfo({
+      chatTitle,
+      safeCollectionId: safeChatTitle,
+      userId: currentUser.uid,
+      path: `chats/${safeChatTitle}/messages`
+    });
 
     try {
       // Create a safe collection path
-      const safeChatTitle = chatTitle.replace(/[^a-zA-Z0-9]/g, '_');
       const chatRef = collection(db, 'chats', safeChatTitle, 'messages');
       const q = query(chatRef, orderBy('timestamp', 'asc'));
 
@@ -59,29 +68,32 @@ const ChatRoom = ({ newsTitle: propNewsTitle }) => {
           id: doc.id,
           ...doc.data()
         }));
-        console.log('Received messages:', messageList.length);
+        console.log('[ChatRoom] Received messages:', messageList.length);
         setMessages(messageList);
         setError(null);
         setTimeout(scrollToBottom, 100);
-      }, (error) => {
-        console.error('Error fetching messages:', error);
-        setError(`Error loading messages: ${error.message}`);
+      }, (err) => {
+        console.error('[ChatRoom] Firestore Error:', err);
+        console.error('[ChatRoom] Error Code:', err.code);
+        console.error('[ChatRoom] Error Message:', err.message);
+
+        if (err.code === 'permission-denied') {
+          setError(`Access Denied: You do not have permission to view this chat. Check firestore.rules.`);
+        } else {
+          setError(`Error loading messages (${err.code}): ${err.message}`);
+        }
       });
 
       return () => unsubscribe();
-    } catch (error) {
-      console.error('Error setting up listener:', error);
-      setError(`Error connecting to chat: ${error.message}`);
+    } catch (err) {
+      console.error('[ChatRoom] Setup Error:', err);
+      setError(`Error connecting to chat: ${err.message}`);
     }
   }, [chatTitle, currentUser]);
 
   const sendMessage = async (e) => {
     e.preventDefault();
     if (!newMessage.trim() || !currentUser) {
-      console.log('Cannot send message:', { 
-        newMessage: newMessage.trim(), 
-        currentUser: !!currentUser
-      });
       return;
     }
 
@@ -89,17 +101,11 @@ const ChatRoom = ({ newsTitle: propNewsTitle }) => {
     setError(null);
 
     try {
-      console.log('Sending message to Firestore:', {
-        chatTitle,
-        message: newMessage,
-        userId: currentUser.uid,
-        userName: currentUser.email
-      });
-
-      // Create a safe collection path
       const safeChatTitle = chatTitle.replace(/[^a-zA-Z0-9]/g, '_');
       const chatRef = collection(db, 'chats', safeChatTitle, 'messages');
-      
+
+      console.log('[ChatRoom] Attempting to send to:', safeChatTitle);
+
       const messageData = {
         text: newMessage,
         timestamp: serverTimestamp(),
@@ -108,17 +114,21 @@ const ChatRoom = ({ newsTitle: propNewsTitle }) => {
         createdAt: new Date().toISOString()
       };
 
-      console.log('Message data:', messageData);
+      console.log('[ChatRoom] Message Payload:', messageData);
 
       const docRef = await addDoc(chatRef, messageData);
-      console.log('Message sent successfully with ID:', docRef.id);
-      
+      console.log('[ChatRoom] Prepare Success, ID:', docRef.id);
+
       setNewMessage('');
       setError(null);
       scrollToBottom();
-    } catch (error) {
-      console.error('Error sending message:', error);
-      setError(`Error sending message: ${error.message}`);
+    } catch (err) {
+      console.error('[ChatRoom] Send Error:', err);
+      if (err.code === 'permission-denied') {
+        setError(`Failed to send: Permission denied. You might not be authenticated correctly.`);
+      } else {
+        setError(`Failed to send: ${err.message}`);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -135,8 +145,20 @@ const ChatRoom = ({ newsTitle: propNewsTitle }) => {
 
   if (!currentUser) {
     return (
-      <div className="flex justify-center items-center h-screen">
-        <LoadingSpinner size="large" text="Checking authentication..." />
+      <div className="flex flex-col justify-center items-center h-[60vh] bg-gray-50 rounded-lg p-8 mx-auto max-w-md my-8 shadow-sm">
+        <div className="mb-4 text-[#075E54]">
+          <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
+          </svg>
+        </div>
+        <h2 className="text-2xl font-bold text-gray-800 mb-2">Join the Discussion</h2>
+        <p className="text-gray-600 text-center mb-6">Please log in to chat about "{chatTitle}" with others.</p>
+        <button
+          onClick={() => navigate('/login')}
+          className="bg-[#075E54] hover:bg-[#054c44] text-white font-bold py-3 px-8 rounded-full transition-all transform hover:scale-105 shadow-md"
+        >
+          Login to Chat
+        </button>
       </div>
     );
   }
@@ -154,21 +176,45 @@ const ChatRoom = ({ newsTitle: propNewsTitle }) => {
         </div>
       </div>
 
+      {/* Debug Info (For Diagnostics) */}
+      {debugInfo && (
+        <div className="bg-yellow-50 p-2 text-xs font-mono border-b border-yellow-200 text-gray-600">
+          <strong>DEBUG:</strong> Collection: {debugInfo.safeCollectionId} | UID: {debugInfo.userId.substring(0, 6)}...
+        </div>
+      )}
+
       {/* Error Message */}
       {error && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded relative">
-          <strong>Error:</strong> {error}
-          <button
-            onClick={() => setError(null)}
-            className="float-right font-bold text-red-700 hover:text-red-900"
-          >
-            ×
-          </button>
+        <div className="bg-red-50 border-l-4 border-red-500 p-4 m-4">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <svg className="h-5 w-5 text-red-500" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="ml-3">
+              <h3 className="text-sm font-medium text-red-800">Error Encountered</h3>
+              <div className="mt-2 text-sm text-red-700">
+                <p>{error}</p>
+              </div>
+            </div>
+            <div className="ml-auto pl-3">
+              <button
+                onClick={() => setError(null)}
+                className="inline-flex rounded-md p-1.5 text-red-500 hover:bg-red-100 focus:outline-none"
+              >
+                <span className="sr-only">Dismiss</span>
+                <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
       {/* Messages Container */}
-      <div 
+      <div
         ref={chatContainerRef}
         className="flex-1 overflow-y-auto p-4 bg-[#E5DDD5]"
         style={{
@@ -176,35 +222,42 @@ const ChatRoom = ({ newsTitle: propNewsTitle }) => {
           backgroundSize: 'contain'
         }}
       >
-        {messages.map((message, index) => {
-          const isMyMessage = message.userId === currentUser?.uid;
-          const showUserName = index === 0 || messages[index - 1]?.userId !== message.userId;
+        {messages.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-gray-500 opacity-70">
+            <div className="text-4xl mb-2">💬</div>
+            <p>No messages yet.</p>
+            <p className="text-sm">Start the conversation in {chatTitle}!</p>
+          </div>
+        ) : (
+          messages.map((message, index) => {
+            const isMyMessage = message.userId === currentUser?.uid;
+            const showUserName = index === 0 || messages[index - 1]?.userId !== message.userId;
 
-          return (
-            <div
-              key={message.id}
-              className={`flex ${isMyMessage ? 'justify-end' : 'justify-start'} mb-4`}
-            >
+            return (
               <div
-                className={`max-w-[75%] rounded-lg px-4 py-2 ${
-                  isMyMessage 
-                    ? 'bg-[#DCF8C6] rounded-tr-none' 
-                    : 'bg-white rounded-tl-none'
-                }`}
+                key={message.id}
+                className={`flex ${isMyMessage ? 'justify-end' : 'justify-start'} mb-4`}
               >
-                {!isMyMessage && showUserName && (
-                  <div className="text-sm font-medium text-[#075E54]">
-                    {message.userName ? message.userName.split('@')[0] : 'Anonymous'}
+                <div
+                  className={`max-w-[75%] rounded-lg px-4 py-2 ${isMyMessage
+                    ? 'bg-[#DCF8C6] rounded-tr-none'
+                    : 'bg-white rounded-tl-none'
+                    }`}
+                >
+                  {!isMyMessage && showUserName && (
+                    <div className="text-sm font-medium text-[#075E54]">
+                      {message.userName ? message.userName.split('@')[0] : 'Anonymous'}
+                    </div>
+                  )}
+                  <div className="text-[#303030]">{message.text}</div>
+                  <div className="text-xs text-gray-500 text-right mt-1">
+                    {formatTime(message.createdAt)}
                   </div>
-                )}
-                <div className="text-[#303030]">{message.text}</div>
-                <div className="text-xs text-gray-500 text-right mt-1">
-                  {formatTime(message.createdAt)}
                 </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })
+        )}
         <div ref={messagesEndRef} />
       </div>
 
@@ -223,11 +276,10 @@ const ChatRoom = ({ newsTitle: propNewsTitle }) => {
           </div>
           <button
             type="submit"
-            className={`px-6 py-2 rounded-full transition-colors ${
-              isLoading || error 
-                ? 'bg-gray-400 cursor-not-allowed' 
-                : 'bg-[#075E54] hover:bg-[#054c44]'
-            } text-white`}
+            className={`px-6 py-2 rounded-full transition-colors ${isLoading || error
+              ? 'bg-gray-400 cursor-not-allowed'
+              : 'bg-[#075E54] hover:bg-[#054c44]'
+              } text-white`}
             disabled={isLoading || !!error}
           >
             {isLoading ? 'Sending...' : 'Send'}

@@ -4,8 +4,9 @@ import LoadingSpinner from "./LoadingSpinner";
 import { useNews } from './NewsContext';
 import { validateApiKey, handleApiError } from '../utils/apiUtils';
 import PropTypes from 'prop-types';
+import sampleNews from '../data/sampleNews.json';
 
-export const NewsBoard = ({category}) => {
+export const NewsBoard = ({ category }) => {
   const [articles, setArticles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -13,47 +14,117 @@ export const NewsBoard = ({category}) => {
 
   useEffect(() => {
     const fetchNews = async () => {
+      const CACHE_KEY = `news_cache_${category}`;
+      const CACHE_DURATION = 15 * 60 * 1000; // 15 minutes
+
+      const getCachedData = () => {
+        try {
+          const cached = localStorage.getItem(CACHE_KEY);
+          if (cached) {
+            const { timestamp, data } = JSON.parse(cached);
+            if (Date.now() - timestamp < CACHE_DURATION) {
+              return { data, isValid: true };
+            }
+            return { data, isValid: false };
+          }
+        } catch (e) {
+          console.error('Cache parse error', e);
+        }
+        return null;
+      };
+
+      const cachedResult = getCachedData();
+
+      // If we have valid cached data, use it immediately
+      if (cachedResult && cachedResult.isValid) {
+        console.log(`Using cached news for ${category}`);
+        setArticles(cachedResult.data);
+        updateNewsData(cachedResult.data);
+        setLoading(false);
+        return;
+      }
+
       try {
         setLoading(true);
         setError(null);
-        
-        const apiKey = import.meta.env.VITE_API_KEY;
-        
-        // Temporarily use a mock API key for development
-        const mockApiKey = 'demo_key_for_development';
-        const finalApiKey = apiKey && apiKey !== 'your_news_api_key_here' ? apiKey : mockApiKey;
-        
-        validateApiKey(finalApiKey, 'News');
 
-        const url = `https://newsapi.org/v2/top-headlines?country=us&category=${category}&apiKey=${finalApiKey}`;
+        // Using NewsData.io API for Indian news
+        const newsdataApiKey = import.meta.env.VITE_NEWSDATA_API_KEY || 'pub_53401fdabd844adda42f7fad7f197ae6'; // Fallback to old key if env missing
+        // Map React categories to NewsData.io categories
+        const categoryMap = {
+          general: '', // NewsData.io returns all if category is empty
+          business: 'business',
+          technology: 'technology',
+          sports: 'sports',
+          entertainment: 'entertainment',
+          health: 'health',
+          science: 'science',
+          world: 'world',
+          nation: 'national',
+        };
+        const newsdataCategory = categoryMap[category] || '';
+        let url = `https://newsdata.io/api/1/news?country=in&language=en&apikey=${newsdataApiKey}`;
+        if (newsdataCategory) {
+          url += `&category=${newsdataCategory}`;
+        }
+        console.log('Fetching news from server:', url);
         const response = await fetch(url);
-        
+
         if (!response.ok) {
-          if (response.status === 401) {
-            throw new Error('Invalid API key. Please check your configuration.');
-          } else if (response.status === 429) {
-            throw new Error('API rate limit exceeded. Please try again later.');
-          } else {
-            throw new Error(`Failed to fetch news: ${response.status}`);
+          // If rate limited (429) or other error, try to fallback to stale cache
+          // Force cache clear if we suspect it's broken
+          if (response.status === 429) {
+            console.warn("429 Error - API Limit Reached");
           }
+
+          if (cachedResult && cachedResult.data && cachedResult.data.length > 0) {
+            console.warn(`API Error ${response.status}. Falling back to stale cache.`);
+            setArticles(cachedResult.data);
+            updateNewsData(cachedResult.data);
+            setError(null);
+            return;
+          }
+          throw new Error(`Failed to fetch news: ${response.status}`);
         }
-        
+
         const data = await response.json();
-        
-        if (data.status === 'error') {
-          throw new Error(data.message || 'News API error');
+        console.log('NewsData.io API response:', data);
+
+        if (!data.results) {
+          throw new Error('No articles found in NewsData.io API response');
         }
-        
-        setArticles(data.articles || []);
-        updateNewsData(data.articles || []); // Store in context
+
+        const newsResults = data.results || [];
+        setArticles(newsResults);
+        updateNewsData(newsResults); // Store in context
+
+        // Update cache
+        localStorage.setItem(CACHE_KEY, JSON.stringify({
+          timestamp: Date.now(),
+          data: newsResults
+        }));
+
         setError(null);
-              } catch (err) {
-          console.error('Error fetching news:', err);
-          setError(handleApiError(err, 'Failed to fetch news'));
-          setArticles([]);
-        } finally {
-          setLoading(false);
+      } catch (err) {
+        console.error('Error fetching news:', err);
+
+        // Final fallback attempt
+        if (cachedResult && cachedResult.data) {
+          console.warn('Network error. Falling back to stale cache.', err);
+          setArticles(cachedResult.data);
+          updateNewsData(cachedResult.data);
+          setError(null);
+        } else {
+          // If no cache, use sample data
+          console.warn('No cache available. Using sample data.');
+          setArticles(sampleNews);
+          updateNewsData(sampleNews);
+          setError(null);
+          // Optional: You could set a specific state to show a "Offline Mode" banner
         }
+      } finally {
+        setLoading(false);
+      }
     };
 
     fetchNews();
@@ -78,7 +149,7 @@ export const NewsBoard = ({category}) => {
           </div>
           <h2 className="text-xl text-red-600 mb-4">Error Loading News</h2>
           <p className="text-gray-600 mb-4">{error}</p>
-          <button 
+          <button
             onClick={() => window.location.reload()}
             className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
           >
@@ -94,15 +165,27 @@ export const NewsBoard = ({category}) => {
       <h2 className="text-3xl font-bold text-center mb-8">
         Latest <span className="text-red-500">{category.toUpperCase()}</span> News
       </h2>
+
+      <div className="flex justify-end mb-4">
+        <button
+          onClick={() => {
+            localStorage.clear();
+            window.location.reload();
+          }}
+          className="text-xs bg-gray-200 hover:bg-gray-300 px-2 py-1 rounded text-gray-600"
+        >
+          Reset / Clear Cache
+        </button>
+      </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {articles && articles.length > 0 ? (
           articles.map((news, index) => (
             <div key={index}>
-              <Newsitem 
-                title={news.title} 
-                description={news.description} 
-                src={news.urlToImage} 
-                url={news.url}
+              <Newsitem
+                title={news.title}
+                description={news.description}
+                src={news.image_url}
+                url={news.link}
               />
             </div>
           ))
